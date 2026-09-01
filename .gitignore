@@ -1,0 +1,11 @@
+# Secrets and runtime state
+.env
+.env.*
+!.env.example
+.desktop-commander-backup/
+logs/
+.npm-cache/
+*.log
+*.pid
+*.lock
+node_modules/
