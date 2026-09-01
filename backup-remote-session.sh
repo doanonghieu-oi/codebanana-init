@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 
-REPO_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+# Prefer CodeBanana's runtime-provided workspace; fall back to this script's directory.
+REPO_DIR="${WORKSPACE_PATH:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}"
 STATE_DIR="${DESKTOP_COMMANDER_STATE_DIR:-$HOME/.desktop-commander-device}"
 STATE_FILE="$STATE_DIR/device.json"
 BACKUP_DIR="$REPO_DIR/.desktop-commander-backup"
@@ -23,7 +24,7 @@ backup() {
 
 restore() {
   if [ ! -f "$BACKUP_FILE" ]; then
-    echo "No backup exists yet; starting with current/local auth state."
+    echo "No backup exists yet; first authentication may be required."
     return 0
   fi
   mkdir -p "$STATE_DIR"
