@@ -77,10 +77,11 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { ok: true, logs: readLogs(url.searchParams.get('lines')) });
   }
 
-  const allowed = ['/api/dc/start', '/api/dc/stop', '/api/dc/restart', '/api/dc/backup'];
+  const allowed = ['/api/dc/start', '/api/dc/stop', '/api/dc/restart', '/api/dc/backup', '/api/dc/keepalive'];
   if (req.method === 'POST' && allowed.includes(url.pathname)) {
     const command = url.pathname.split('/').pop();
-    const result = await run(command, command === 'start' || command === 'restart' ? 95000 : 30000);
+    const waitMs = ['start', 'restart', 'keepalive'].includes(command) ? 120000 : 30000;
+    const result = await run(command, waitMs);
     return json(res, result.ok ? 200 : 500, result);
   }
   return json(res, 404, { ok: false, error: 'not_found' });
