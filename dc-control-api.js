@@ -5,12 +5,13 @@ const path = require('node:path');
 
 const ROOT = process.env.WORKSPACE_PATH || __dirname;
 const SCRIPT = path.join(ROOT, 'dc-remote.sh');
-const PORT = Number(process.env.DC_API_PORT || process.env.PORT || 8000);
+const PORT = Number(process.env.DC_API_PORT || process.env.PORT || 9102);
 const HOST = process.env.DC_API_HOST || '0.0.0.0';
+const AUTH_REQUIRED = !['0', 'false', 'no', 'off'].includes(String(process.env.DC_API_AUTH_REQUIRED || 'true').toLowerCase());
 const TOKEN = process.env.DC_API_TOKEN || '';
 
-if (!TOKEN) {
-  console.error('ERROR: DC_API_TOKEN is required.');
+if (AUTH_REQUIRED && !TOKEN) {
+  console.error('ERROR: DC_API_TOKEN is required when DC_API_AUTH_REQUIRED is enabled.');
   process.exit(1);
 }
 if (!fs.existsSync(SCRIPT)) {
@@ -28,6 +29,7 @@ function json(res, status, data) {
 }
 
 function authorized(req) {
+  if (!AUTH_REQUIRED) return true;
   return (req.headers.authorization || '') === `Bearer ${TOKEN}`;
 }
 
@@ -62,7 +64,7 @@ function readLogs(lines) {
 
 const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/health') {
-    return json(res, 200, { ok: true, service: 'dc-control-api' });
+    return json(res, 200, { ok: true, service: 'dc-control-api', authRequired: AUTH_REQUIRED, port: PORT });
   }
   if (!authorized(req)) return json(res, 401, { ok: false, error: 'unauthorized' });
 
@@ -85,5 +87,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`DC control API listening on ${HOST}:${PORT}`);
+  console.log(`DC control API listening on ${HOST}:${PORT} (authRequired=${AUTH_REQUIRED})`);
 });
