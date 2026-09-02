@@ -1,10 +1,9 @@
 #!/bin/sh
 # dc-remote.sh — portable Desktop Commander Remote launcher for CodeBanana
-# Usage: sh dc-remote.sh {start|stop|restart|status|logs|backup|restore|doctor}
+# Usage: sh dc-remote.sh [start|stop|restart|status|logs|backup|restore|doctor]
+# No command defaults to: start
 set -u
 
-# CodeBanana exposes the current workspace through WORKSPACE_PATH.
-# Fall back to the directory containing this script for portability.
 REPO_DIR="${WORKSPACE_PATH:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}"
 if [ ! -d "$REPO_DIR" ]; then
   echo "ERROR: workspace does not exist: $REPO_DIR" >&2; exit 1
@@ -60,26 +59,41 @@ start() {
   echo "---- [$(date '+%Y-%m-%d %H:%M:%S')] start (launcher pid $$) ----" >>"$LOG_FILE"
   OFFSET=$(wc -c < "$LOG_FILE")
   cd "$REPO_DIR" || exit 1
+
+  # Keep the real command attached to the log. In particular, do not let npm/npx
+  # installation output hide the OAuth/device-flow URL and code from the caller.
   NPM_CONFIG_CACHE="$NPM_CACHE_DIR" setsid nohup sh -c "$RUN_CMD" >>"$LOG_FILE" 2>&1 </dev/null &
   NEWPID=$!
   echo "$NEWPID" >"$PID_FILE"
   echo "Launched pid $NEWPID. Waiting for startup markers..."
+
   i=0; STATUS=""
   while [ $i -lt 90 ]; do
     i=$((i + 1)); sleep 1
+    NEW_LOG=$(tail -c +$((OFFSET + 1)) "$LOG_FILE" 2>/dev/null || true)
+
+    # Print authentication instructions as soon as the package emits them.
+    # Different Desktop Commander releases have used slightly different wording.
+    if printf '%s\n' "$NEW_LOG" | grep -Eqi 'https?://[^ ]*(device|oauth|verify)|verification (url|uri)|device code|user code|enter.*code|authenticate|authentication'; then
+      echo "AUTHENTICATION OUTPUT:"
+      printf '%s\n' "$NEW_LOG" | tail -n 20
+      STATUS="NEEDS_AUTH"
+      # Do not break here: if authentication completes during the wait, report READY.
+    fi
+
     if ! kill -0 "$NEWPID" 2>/dev/null; then STATUS="DEAD"; break; fi
-    if tail -c +$((OFFSET + 1)) "$LOG_FILE" 2>/dev/null | grep -q "Device ready"; then STATUS="READY"; break; fi
-    if tail -c +$((OFFSET + 1)) "$LOG_FILE" 2>/dev/null | grep -q "Authenticating with Remote MCP"; then STATUS="NEEDS_AUTH"; break; fi
+    if printf '%s\n' "$NEW_LOG" | grep -q "Device ready"; then STATUS="READY"; break; fi
   done
+
   case "$STATUS" in
     READY)
       echo 'OK: Desktop Commander Remote is connected ("Device ready").'
-      tail -c +$((OFFSET + 1)) "$LOG_FILE" | tail -n 6
+      tail -c +$((OFFSET + 1)) "$LOG_FILE" | tail -n 12
       backup || true
       ;;
     NEEDS_AUTH)
-      echo "WAITING FOR AUTH (first run). Complete authentication, then run: sh dc-remote.sh backup"
-      tail -c +$((OFFSET + 1)) "$LOG_FILE" | tail -n 12
+      echo "WAITING FOR AUTH (first run). Open the verification URL and enter the device/user code shown above."
+      echo "After authentication completes, this process will remain connected; later starts restore the saved session."
       ;;
     DEAD)
       echo "FAILED: process exited during startup. Last log lines:" >&2
@@ -88,7 +102,7 @@ start() {
       ;;
     *)
       echo "TIMEOUT: process may still be starting. Last log lines:"
-      tail -n 10 "$LOG_FILE"
+      tail -n 20 "$LOG_FILE"
       ;;
   esac
 }
@@ -134,7 +148,10 @@ doctor() {
   echo "npm cache: $NPM_CACHE_DIR $(du -sh "$NPM_CACHE_DIR" 2>/dev/null | cut -f1)"
 }
 
-case "${1:-status}" in
+# No flags/commands => start. This is intentionally different from the usual
+# status default because CodeBanana can invoke the script without arguments.
+COMMAND="${1:-start}"
+case "$COMMAND" in
   start) start ;;
   stop) stop ;;
   restart) stop; start ;;
@@ -143,5 +160,5 @@ case "${1:-status}" in
   backup) backup ;;
   restore) restore ;;
   doctor) doctor ;;
-  *) echo "Usage: $0 {start|stop|restart|status|logs|backup|restore|doctor}" >&2; exit 2 ;;
+  *) echo "Usage: $0 [start|stop|restart|status|logs|backup|restore|doctor]" >&2; exit 2 ;;
 esac
