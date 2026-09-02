@@ -1,8 +1,10 @@
 # API kích hoạt services từ bên ngoài — Cheat sheet
 
-> Lưu ý bảo mật: URL thật (preview domain + webhook) KHÔNG được public trên repo này.
-> Xem URL hiện tại bằng `get_all_domains_ports()` trong phiên CodeBanana, hoặc trong
-> `.codebanana/.agent/MEMORY.md` (không được commit).
+> Lưu ý bảo mật: URL webhook phía dưới được commit **chủ đích** (người sở hữu cần nó
+> để kích hoạt khi container chết). Rủi ro: ai có URL + `bt_id` đều gọi được → nếu
+> bị lạm dụng, xóa/tạo lại webhook task để thu hồi URL. Preview domain của control
+> API vẫn KHÔNG commit — lấy bằng `get_all_domains_ports()` trong phiên CodeBanana
+> hoặc xem `.codebanana/.agent/MEMORY.md` (không được commit).
 
 ## 1. Khi container CÒN SỐNG (service chết / cần start)
 
@@ -30,10 +32,10 @@ Không có API nào trong container trả lời được lúc này — dùng web
 (đi qua server nền tảng, đánh thức phiên agent → agent chạy keepalive):
 
 ```sh
-# URL webhook + bt_id lấy từ get_webhook_info của task "Wake container & start all services"
-curl -X POST "<webhook-url>" \
+# Webhook thật của dự án này (private — đừng chia sẻ; thu hồi bằng cách xóa/tạo lại task)
+curl -X POST "https://prd-chat-socket-api.codebanana.com/cb-trigger-server/api/v1/banana_tasks/webhook/whk_7ee946445540fc22f7023a76814055b71205eef8fb7131d8/receive" \
   -H "Content-Type: application/json" \
-  -d '{"bt_id": "<bt_id>", "data": {"reason": "wake up"}}'
+  -d '{"bt_id": "bt_45b6d7260aa3", "data": {"reason": "wake up"}}'
 ```
 
 - Trả `202 Accepted` ngay; agent chạy nền trong ~1-2 phút.
