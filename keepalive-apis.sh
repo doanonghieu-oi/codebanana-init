@@ -1,9 +1,9 @@
 #!/bin/sh
 # keepalive-apis.sh — ensure DC control API instances are running.
-# Port 9102: primary control API (mobile ngrok domain m-c2c8f47b166c3338.ngrok.app maps here,
-#             but that platform tunnel is currently offline after container restart).
-# Port 8002: public fallback via general preview domain
-#             app-preview-d196cc3d81223edb310f4627cf8cda08.codebanana.com (verified working).
+# Port 9102: primary control API (mapped by the platform's mobile ngrok domain,
+#             which can stay offline after container restarts — see docs/REMOTE-ACTIVATION-API.md).
+# Port 8002: public fallback via the platform's general preview domain
+#             (lookup the current mapping with get_all_domains_ports(); do not hard-code).
 # Verify current mapping with get_all_domains_ports() before hardcoding elsewhere.
 set -u
 REPO_DIR="${WORKSPACE_PATH:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}"
