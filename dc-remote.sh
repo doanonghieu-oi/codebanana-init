@@ -160,5 +160,11 @@ case "$COMMAND" in
   backup) backup ;;
   restore) restore ;;
   doctor) doctor ;;
-  *) echo "Usage: $0 [start|stop|restart|status|logs|backup|restore|doctor]" >&2; exit 2 ;;
+  keepalive)
+    if [ -f "$REPO_DIR/keepalive-apis.sh" ]; then
+      sh "$REPO_DIR/keepalive-apis.sh"
+    else
+      echo "ERROR: keepalive-apis.sh not found in $REPO_DIR" >&2; exit 1
+    fi ;;
+  *) echo "Usage: $0 [start|stop|restart|status|logs|backup|restore|doctor|keepalive]" >&2; exit 2 ;;
 esac

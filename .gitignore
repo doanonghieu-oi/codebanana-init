@@ -9,3 +9,7 @@ logs/
 *.pid
 *.lock
 node_modules/
+
+# CodeBanana workspace secrets & agent state
+.dc-api-token
+.codebanana/
