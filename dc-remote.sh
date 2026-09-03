@@ -55,56 +55,87 @@ start() {
   if is_running; then
     echo "Already running (pids: $(dc_pids | tr '\n' ' ')). Nothing to do."; exit 0
   fi
+
   restore
   echo "---- [$(date '+%Y-%m-%d %H:%M:%S')] start (launcher pid $$) ----" >>"$LOG_FILE"
   OFFSET=$(wc -c < "$LOG_FILE")
   cd "$REPO_DIR" || exit 1
 
-  # Keep the real command attached to the log. In particular, do not let npm/npx
-  # installation output hide the OAuth/device-flow URL and code from the caller.
+  # Keep the real command detached so it survives this launcher, but keep this
+  # launcher in the foreground while device/OAuth authentication is pending.
   NPM_CONFIG_CACHE="$NPM_CACHE_DIR" setsid nohup sh -c "$RUN_CMD" >>"$LOG_FILE" 2>&1 </dev/null &
   NEWPID=$!
   echo "$NEWPID" >"$PID_FILE"
-  echo "Launched pid $NEWPID. Waiting for startup markers..."
+  echo "Launched pid $NEWPID. Waiting for startup/authentication..."
 
-  i=0; STATUS=""
-  while [ $i -lt 90 ]; do
-    i=$((i + 1)); sleep 1
-    NEW_LOG=$(tail -c +$((OFFSET + 1)) "$LOG_FILE" 2>/dev/null || true)
+  AUTH_SHOWN=0
+  AUTH_MODE=0
+  LAST_PROGRESS=0
+  LAST_STATE=""
 
-    # Print authentication instructions as soon as the package emits them.
-    # Different Desktop Commander releases have used slightly different wording.
-    if printf '%s\n' "$NEW_LOG" | grep -Eqi 'https?://[^ ]*(device|oauth|verify)|verification (url|uri)|device code|user code|enter.*code|authenticate|authentication'; then
-      echo "AUTHENTICATION OUTPUT:"
-      printf '%s\n' "$NEW_LOG" | tail -n 20
-      STATUS="NEEDS_AUTH"
-      # Do not break here: if authentication completes during the wait, report READY.
+  while :; do
+    sleep 1
+
+    if ! kill -0 "$NEWPID" 2>/dev/null; then
+      echo "FAILED: process exited during startup/authentication. Last log lines:" >&2
+      tail -n 20 "$LOG_FILE" >&2
+      exit 1
     fi
 
-    if ! kill -0 "$NEWPID" 2>/dev/null; then STATUS="DEAD"; break; fi
-    if printf '%s\n' "$NEW_LOG" | grep -q "Device ready"; then STATUS="READY"; break; fi
-  done
+    NEW_LOG=$(tail -c +$((OFFSET + 1)) "$LOG_FILE" 2>/dev/null || true)
 
-  case "$STATUS" in
-    READY)
+    # Authentication can take arbitrarily long. Once an auth/device-flow prompt
+    # appears, do NOT let this command return until the remote becomes ready.
+    if [ "$AUTH_MODE" -eq 0 ] && printf '%s\n' "$NEW_LOG" | grep -Eqi 'https?://[^ ]*(device|oauth|verify)|verification (url|uri)|device code|user code|enter.*code|authenticate|authentication'; then
+      AUTH_MODE=1
+      echo
+      echo "========== AUTHENTICATION REQUIRED =========="
+      printf '%s\n' "$NEW_LOG" | tail -n 30
+      echo "============================================="
+      echo "Open the verification URL above and complete authentication."
+      echo "This command will stay open and wait until verification succeeds."
+      echo
+      AUTH_SHOWN=1
+    fi
+
+    if printf '%s\n' "$NEW_LOG" | grep -q "Device ready"; then
+      echo
       echo 'OK: Desktop Commander Remote is connected ("Device ready").'
       tail -c +$((OFFSET + 1)) "$LOG_FILE" | tail -n 12
       backup || true
-      ;;
-    NEEDS_AUTH)
-      echo "WAITING FOR AUTH (first run). Open the verification URL and enter the device/user code shown above."
-      echo "After authentication completes, this process will remain connected; later starts restore the saved session."
-      ;;
-    DEAD)
-      echo "FAILED: process exited during startup. Last log lines:" >&2
-      tail -n 15 "$LOG_FILE" >&2
-      exit 1
-      ;;
-    *)
-      echo "TIMEOUT: process may still be starting. Last log lines:"
-      tail -n 20 "$LOG_FILE"
-      ;;
-  esac
+      return 0
+    fi
+
+    # Backup immediately when authentication creates or updates the persisted
+    # device state. This also covers auth completing long after the old timeout.
+    if [ -f "$STATE_FILE" ]; then
+      CURRENT_STATE=$(wc -c < "$STATE_FILE" 2>/dev/null || true)
+      if [ -n "$CURRENT_STATE" ] && [ "$CURRENT_STATE" != "$LAST_STATE" ]; then
+        if backup; then
+          LAST_STATE="$CURRENT_STATE"
+          if [ "$AUTH_MODE" -eq 1 ]; then
+            echo
+            echo "AUTH STATE SAVED. Waiting for remote connection..."
+          fi
+        fi
+      fi
+    fi
+
+    if [ "$AUTH_MODE" -eq 1 ]; then
+      NOW=$(date +%s)
+      if [ $((NOW - LAST_PROGRESS)) -ge 5 ]; then
+        echo "Waiting for authentication/verification to complete... ($(date '+%H:%M:%S'))"
+        LAST_PROGRESS=$NOW
+      fi
+    elif [ "$AUTH_SHOWN" -eq 0 ]; then
+      # Keep the command interactive during slow npx/package startup too.
+      NOW=$(date +%s)
+      if [ $((NOW - LAST_PROGRESS)) -ge 10 ]; then
+        echo "Starting Desktop Commander Remote... ($(date '+%H:%M:%S'))"
+        LAST_PROGRESS=$NOW
+      fi
+    fi
+  done
 }
 
 stop() {
